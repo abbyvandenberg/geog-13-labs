@@ -1,0 +1,162 @@
+---
+title: "Geography 13"
+author: "[Abby Vandenberg](https://abbyvandenberg.github.io/)
+subtitle: "Lab 02: COVID-19 Pandemic"
+output:
+  html_document:
+    theme: journal
+---
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(readxl)
+library(zoo)
+url = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
+covid = read_csv(url)
+head(covid)
+state.of.interest = "California"
+  
+PopEst <- read_excel("../data/PopulationEstimates (1).xls", skip=2)
+```
+
+
+# Question 1 
+
+```{r}
+lab02 = covid %>% 
+  filter(state == state.of.interest) %>% 
+  group_by(county) %>% 
+  summarise(dailynewcases = lag(cases), fips=fips, date=date, cases=cases) %>% 
+  ungroup()
+lab02
+```
+
+```{r}
+## Counties with most cumulative cases
+cumulative = lab02 %>%
+  filter(date == max(date)) %>% 
+  select(county, cases) %>% 
+  slice_max(cases, n = 5)
+
+knitr::kable(cumulative, caption = "Five Counties With Highest Cumulative Cases to Date", col.names = c("County", "Cases"))
+```
+  
+## Counties with most daily new cases
+
+```{r}
+newcases = lab02 %>%
+  filter(date == max(date)) %>% 
+  select(county, date, dailynewcases) %>% 
+  slice_max(dailynewcases, n = 5) 
+  
+knitr::kable(newcases, caption = "Five Counties With Highest Daily New Cases", col.names = c("County", "Date", "Daily New Cases"))
+```
+
+```{r}
+## Most Cumulative Cases Per Capita
+PopEst <- rename(PopEst, fips = FIPStxt)
+joinCalPop <- inner_join(PopEst, lab02, by = "fips")
+
+j2 = joinCalPop %>% 
+  filter(date == max(date)) %>% 
+  mutate(percapita = cases / POP_ESTIMATE_2019) %>%
+  select(county, percapita) %>% 
+  slice_max(percapita, n = 5) 
+
+knitr::kable(j2, caption = "Five Counties With Highest Cumulative Cases Per Capita", col.names = c("County", "Cases Per Capita"))
+```
+
+
+```{r}
+
+## Most Daily New Cases Per Capita 
+daily = joinCalPop %>% 
+  filter(date == max(date)) %>% 
+  mutate(percapita = dailynewcases / POP_ESTIMATE_2019) %>%
+  select(county, percapita) %>% 
+  arrange(desc(percapita)) %>% 
+  slice_max(percapita, n = 5) 
+  
+knitr::kable(daily, caption = "Five Counties With Highest Daily New Cases Per Capita", col.names = c("County", "Daily New Cases"))
+```
+
+
+```{r}
+## Safe Counties with Less than 100 new cases per 100,000 residents in last 14 Days
+safe = joinCalPop %>% 
+  filter(date >= max(date) - 13) %>% 
+  group_by(county, POP_ESTIMATE_2019, date) %>% 
+  summarise(new14 = sum(cases))  %>%
+  mutate(percapita = new14/(POP_ESTIMATE_2019 / 100000)) %>%
+  ungroup() %>%
+  select(county, percapita) %>% 
+  filter(percapita < 100)  
+
+knitr::kable(safe, caption = "Safe Counties with Less than 100 new cases per 100,000 residents in the last 14 Days", col.names = c("County", "Daily New Cases"))
+```
+  
+```{r}  
+totalcases <- sum(safe$cases)
+daily <- sum(safe$dailynewcases)
+county <- nrow(safe)
+  
+paste("The total number of cases in", state.of.interest,  "to date are" , totalcases, ".")
+paste("The total number of new cases as of", date(), "is", daily, ".")
+paste("The number of safe counties, that is counties with less than 100 cases per 100,000 people in the last 14 days is", county, "." )
+
+```
+
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(readxl)
+library(zoo)
+
+PopEst <- read_excel("../data/PopulationEstimates (1).xls", skip=2)
+
+### Number of Daily New Cases at State Level 
+statedata = covid %>% 
+  filter(state %in% c("California", "New York", "Louisiana", "Florida")) %>%
+  group_by(state, date) %>%
+  summarize(cases = sum(cases, na.rm = TRUE)) %>%
+  mutate(newCases = cases - lag(cases),
+         roll7 = rollmean(newCases, 7, fill = NA, align="right")) %>% ungroup()
+ggplot(statedata, aes(x = date, y = newCases))+
+  geom_col(aes(y = newCases), col = NA, fill = "#F5B8B5") +
+  geom_line(aes(y = roll7), col = "darkred", size = 1) +
+  labs(title = "New Reported Covid Cases by Day", 
+       x = "Date", 
+       y = "New Cases") +
+  facet_wrap(~state, scales = "free") +
+  theme_dark() +
+  theme(aspect.ratio = .5)
+
+
+## Joining State Data 
+joinStatePop <- inner_join(PopEst, statedata, by = "fips")
+
+joinStatePop %>% 
+  filter(date == max(date)) %>% 
+  mutate(percapita = cases / POP_ESTIMATE_2019) %>%
+  select(county, percapita)  
+  
+```
+```{r}
+library(tidyverse)
+library(knitr)
+library(readxl)
+library(zoo)
+
+CountyCenters <- read_csv("../docs/data/county-centroids.csv")
+
+#Question 3 Extra Credit
+covidCenter <- inner_join(covid, CountyCenters, by = "fips")
+
+
+
+```
+
+
+
