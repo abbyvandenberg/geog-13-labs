@@ -1,6 +1,6 @@
 ---
 title: "Geography 13"
-author: "[Abby Vandenberg](https://abbyvandenberg.github.io)"
+author: "[Abby Vandenberg](https://abbyvandenberg.github.io/)"
 subtitle: "Lab 03: Distances and the Border Zone"
 output:
   html_document:
