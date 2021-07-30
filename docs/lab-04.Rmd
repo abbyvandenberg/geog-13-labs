@@ -1,0 +1,248 @@
+---
+title: "Geography 13"
+author: "[Abby Vandenberg](https://abbyvandenberg.github.io/)"
+subtitle: "Lab 04: Tesselations and Point-in-Polygon"
+output:
+  html_document:
+    theme: journal
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, out.width = "75%", fig.align = 'center')
+```
+
+## Load library packages
+```{r}
+library(sf)
+library(units)
+library(USAboundaries)
+library(rnaturalearth)
+library(gghighlight)
+library(ggrepel)
+library(knitr)
+library(leaflet)
+library(dplyr)
+library(readxl)
+library(rmapshaper)
+library(tidyverse)
+```
+
+## Question 1 
+```{r warning =FALSE}
+### 1.1 and 1.2
+counties <- USAboundaries::us_counties() %>% 
+  filter(!state_name %in% c("Hawaii", "Puerto Rico", "Alaska", "Guam")) %>% 
+  st_transform(5070) %>% 
+  st_as_sf()
+
+centroids <- counties %>% 
+  st_centroid()
+
+cent_union <- centroids %>% 
+  st_union()
+
+```
+```{r warning = FALSE}
+### 1.3, 1.4, and 1.5
+boundary <- counties %>% st_union() %>% ms_simplify(keep = .025)
+
+voronois <- st_voronoi(cent_union) %>%
+  st_cast %>% 
+  st_as_sf() %>%
+  mutate(id = 1:n()) %>% 
+  st_intersection(boundary)
+
+triangle <- st_triangulate(cent_union) %>% 
+  st_cast %>% 
+  st_as_sf() %>%
+  mutate(id = 1:n()) %>% 
+  st_intersection(boundary)
+
+gridded <- st_make_grid(cent_union, n = 70) %>% 
+  st_cast %>% 
+  st_as_sf() %>%
+  mutate(id = 1:n()) %>% 
+  st_intersection(boundary)
+ 
+
+hex_grid <- st_make_grid(cent_union, square = FALSE, n = 70) %>% 
+  st_cast %>% 
+  st_as_sf() %>%
+  mutate(id = 1:n()) %>% 
+  st_intersection(boundary)
+
+plot(cent_union)
+plot(voronois)
+plot(triangle)
+plot(gridded)
+plot(hex_grid)
+```
+
+```{r}
+### 1.6 and 1.7
+plot_now = function(data, title){
+  ggplot() + 
+    geom_sf(data = data, fill = "white", col = "navy", alpha = .9, size = .2) + 
+    labs(title = title, 
+         caption = paste("There are", nrow(data), "features."))+
+    theme_void() 
+}
+
+plot_now(counties, title = "Original Counties Plot")
+plot_now(voronois, title = "Voronoi Tesselation")
+plot_now(triangle, title = "Delauny Triangulation")
+plot_now(gridded, title = "Equal Area Square Coverage")
+plot_now(hex_grid, title = "Hexagonal Grid Coverage")
+
+```
+
+## Question 2
+```{r}
+### 2.1 and 2.2
+summarize_tess <- function(data, description){
+  area = st_area(data)
+  area = set_units(area, "km^2")
+  area = as.numeric(area)
+  data.frame(Attributes = c("Description", "Number of Features", "Mean Area of Features (sqkm)", "Standard Deviation of Features", "Total Area(sqkm)"), Values = c(description, nrow(data), mean(area), sd(area), sum(area)))
+}
+
+summarize_tess(counties, "Original Counties")
+summarize_tess(voronois, "Voronoi Tesselation")
+summarize_tess(triangle, "Delauny Triangulation")
+summarize_tess(gridded, "Equal Area Square Coverage")
+summarize_tess(hex_grid, "Hexagonal Grid Coverage")
+
+### 2.3 and 2.4
+summarize_tess = bind_rows(
+  summarize_tess(counties, "Original Counties"),
+  summarize_tess(voronois, "Voronoi Tesselation"),
+  summarize_tess(triangle, "Delauny Triangulation"),
+  summarize_tess(gridded, "Equal Area Square Coverage"),
+  summarize_tess(hex_grid, "Hexagonal Grid Coverage")
+)
+
+knitr::kable(summarize_tess, caption = "Bound Summaries of Tesselations and Coverages") %>% 
+  kableExtra::kable_styling()
+
+### 2.5
+paste("The original county data contains 3,180 features with a mean of 2,522 sqkm and a total area of 7837582 sqkm. The Voronoi tesselation is similar with 2,098 featutes, a smiliar mean area, and a slightly higher total area of 7843858 sqkm. The Delaunry triangulation contains the most number of features with 6185. The high number of features makes the mean area lower at about 1254sqkm. The total area is again higher than the latter at 7756659sqkm. The square coverage contains 3252 features and again higher total area of 7822316sqkm. The hexagonal coverage has less features with 2337, yet greater total area with 7841943sqkm. The changes in total area are due to the way I intersected the data and cropped it to fit CONUS. I think that more features will result in more accurate point in poylogon data since more points can be extracted from more polygons, but in conext of the MAUP it is entirely situational and the best tesselation will vary by what the context is of your study.")
+```
+
+## Question 3
+```{r warning = FALSE}
+### 3.1
+NID <- read_excel("../data/NID2019_U.xlsx") %>% 
+  filter(!is.na(LONGITUDE)) %>% 
+  filter(!is.na(LATITUDE)) %>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326) %>% 
+  st_transform(5070)
+
+```
+```{r warning=FALSE}
+### 3.2 and 3.3
+PIP <- function(points, polygons, id){
+  st_join(polygons, points) %>% 
+    dplyr::count(.data[[id]])
+}
+
+counties_pip <- PIP(NID, counties, 'countyfp')
+Vor <- PIP(NID, voronois, 'id')
+triangl_pip <- PIP(NID, triangle, 'id')
+square_pip <- PIP(NID, gridded, 'id')
+hex_pip <- PIP(NID, hex_grid, 'id')
+
+```
+```{r}
+### 3.4 and 3.5
+plot_PIP <- function(data, title){
+  ggplot()+
+    geom_sf(data = data, aes(fill = n), size = 0.2, col = NA)+
+    scale_fill_viridis_c()+
+    theme_void()+
+    labs(title = title, caption = paste("Total Dams:", sum(data$n)))
+}
+
+plot_PIP(counties_pip, "Original Counites")
+plot_PIP(Vor, "Voronoi Tessellation")
+plot_PIP(triangl_pip, "Delauny Triangulation")
+plot_PIP(square_pip, "Gridded Coverage")
+plot_PIP(hex_pip, "Hexagonal Coverage")
+```
+```{r}
+### 3.6
+paste("The visualization and number of point counts varies between each tesselation. Since each tesselation varies, some are best for certain studies while others or not. This relates to MAUP since it is situational and no tesselation is better than the other. I am choosing the Voronoi tesselation because it shows five areas of concentrated damns, wheras the other tesselations and coverages show only one or two. This leads me to believe that the Voronoi is more encompassing of all the data. I also think it is more appropriate than the gridded coveragees because those are equal area coverages which is not as representative of the areas of the United States.")
+```
+## Question 4
+```{r}
+### 4.1
+paste("I chose to focus on hydroelectric, fish and wildlife, fire protection, and flood control dams. Electricty producing damns have always fascinated me, and the other three purposes appeal to my interset in enviornmental conservation.")
+
+NID_electric <- NID %>% 
+  filter(grepl("H", NID$PURPOSES))
+electric_pip <- PIP(NID_electric, voronois, 'id')
+
+NID_fish <- NID %>% 
+  filter(grepl("F", NID$PURPOSES))
+fish_pip <- PIP(NID_fish, voronois, 'id')
+
+NID_fire <- NID %>% 
+  filter(grepl("P", NID$PURPOSES))
+fire_pip <- PIP(NID_fire, voronois, 'id')
+
+NID_flood <- NID %>% 
+  filter(grepl("C", NID$PURPOSES))
+flood_pip <- PIP(NID_flood, voronois, 'id')
+
+```
+```{r}
+### 4.2
+plot_PIPS <- function(data, title){
+  ggplot()+
+    geom_sf(data = data, aes(fill = n), size = 0.2, col = NA)+
+    gghighlight(n > (mean(data$n) + sd(data$n)))+
+    scale_fill_viridis_c()+
+    theme_void()+
+    labs(title = title, caption = paste("Total Dams:", sum(data$n)))
+}
+
+plot_PIPS(electric_pip, "Hydroelectric Damns in US")
+plot_PIPS(fish_pip, "Fish and Wildlife Damns in US")
+plot_PIPS(fire_pip, "Fire Protection Damns in US")
+plot_PIPS(flood_pip, "Flood Control Damns in US")
+
+```
+```{r}
+### 4.3
+paste("The geographic distribution of these specifc purpose dams makes since. The areas with hydroelectric damns are found in high rainfall areas. The fish and wildlife dams are located more centrally with a hub in the southern United States. These areas in central US are less populated so there is more wildlife, and the southern area is near the Mississippi river system. The fire protection dams are mostly found in the central US where the climate is hot and dry. Lastly flood control damns are found running down the middle of the US through Texas. Flooding can easily happen in these areas because of the low terrain. If I had chosed the triangular or gridded tesselations some of the highlighted tiles might vary since the area of the tiles is different in the other tesselations. Only the tiles with a significant number of dams were highlighted, if the area of the tiles changed it would change the number of dams found in each tile.")
+```
+
+## Extra Credit
+```{r}
+river_systems <- read_sf("../data/majorrivers_0_0") 
+
+mississippi <- river_systems %>%
+  filter(SYSTEM == "Mississippi") 
+
+danger_zone <- NID %>% 
+  filter(!STATE %in% c("AK", "PR", "HI")) %>% 
+  filter(HAZARD == "H") %>% 
+  group_by(STATE) %>% 
+  st_transform(4326) %>% 
+  slice_max(NID_STORAGE, n =1) %>% 
+  dplyr::select("DAM_NAME", "NID_STORAGE", "PURPOSES", "YEAR_COMPLETED")
+  
+leaflet() %>% 
+  addProviderTiles(providers$Esri) %>%
+  addPolylines(data = mississippi) %>% 
+  addCircleMarkers(data = danger_zone,
+                   radius = ~NID_STORAGE / 1500000,
+                   color = "red",
+                   fillOpacity = .5,
+                   stroke = FALSE,
+                   popup = leafpop::popupTable(st_drop_geometry(danger_zone[1:4]),
+                                         feature.id = FALSE))
+  
+
+```
+
+
+
